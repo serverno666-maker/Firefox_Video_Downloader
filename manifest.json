@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "name": "Video herunterladen",
+  "version": "1.4.0",
+  "incognito": "not_allowed",
+  "description": "Findet Videos auf Webseiten und lädt Dateien oder unterstützte Streams per Rechtsklick herunter.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "video-speichern@local.invalid",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "permissions": ["<all_urls>", "menus", "downloads", "webRequest", "webRequestBlocking", "webNavigation", "storage", "tabs", "scripting", "notifications"],
+  "background": {
+    "scripts": ["mp4-mux.js", "streaming.js", "download-stream.js", "stream-job.js", "discovery.js", "background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "run_at": "document_start"
+    }
+  ]
+}

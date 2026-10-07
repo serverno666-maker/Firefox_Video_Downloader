@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video auswählen</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px system-ui, sans-serif; }
+    body { margin: 0; padding: 24px; max-width: 520px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { line-height: 1.4; overflow-wrap: anywhere; }
+    label { display: block; font-weight: 600; margin: 18px 0 6px; }
+    select { box-sizing: border-box; width: 100%; padding: 9px; font: inherit; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; }
+    button { padding: 9px 14px; font: inherit; cursor: pointer; }
+    #error { color: #b32727; min-height: 1.4em; }
+  </style>
+</head>
+<body>
+  <h1>Video herunterladen</h1>
+  <p id="filename"></p>
+  <form id="choice-form">
+    <div id="video-row" hidden>
+      <label for="video-choice">Auflösung</label>
+      <select id="video-choice" required></select>
+    </div>
+    <div id="audio-row" hidden>
+      <label for="audio-choice">Tonsprache</label>
+      <select id="audio-choice" required></select>
+    </div>
+    <p id="error" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="cancel">Abbrechen</button>
+      <button type="submit" id="download">Download</button>
+    </div>
+  </form>
+  <script src="choice.js"></script>
+</body>
+</html>
