@@ -643,12 +643,9 @@
       const id = await downloadsApi.download({ url, filename: safeFilename(name, extension), saveAs: true, conflictAction: "uniquify" });
       return await new Promise((resolve, reject) => {
         let settled = false;
-        let pollTimer = null;
-        let checking = false;
         const finish = (state, error) => {
           if (settled || (state !== "complete" && state !== "interrupted")) return;
           settled = true;
-          if (pollTimer !== null) clearInterval(pollTimer);
           downloadsApi.onChanged.removeListener(listener);
           if (signal) signal.removeEventListener("abort", abort);
           URL.revokeObjectURL(url);
@@ -663,25 +660,13 @@
             .catch(() => {}).finally(() => finish("interrupted", "Download cancelled."));
           else finish("interrupted", "Download cancelled.");
         };
-        const inspect = async () => {
-          if (settled || checking || !downloadsApi.search) return;
-          checking = true;
-          try {
-            const items = await downloadsApi.search({ id });
-            if (items[0]) finish(items[0].state, items[0].error);
-          } catch (_) { /* onChanged may still report completion. */ }
-          finally { checking = false; }
-        };
         downloadsApi.onChanged.addListener(listener);
         if (signal) signal.addEventListener("abort", abort, { once: true });
         if (signal && signal.aborted) abort();
-        // Firefox can miss an onChanged event while its native Save As dialog
-        // is open. Poll until the transfer actually finishes before releasing
-        // the Blob URL and the temporary file behind it.
-        if (downloadsApi.search && !settled) {
-          pollTimer = setInterval(inspect, 1000);
-          inspect();
-        }
+        // The transfer may finish before the listener is installed.
+        if (downloadsApi.search) downloadsApi.search({ id }).then(items => {
+          if (items[0]) finish(items[0].state, items[0].error);
+        }).catch(() => {});
       });
     } catch (error) {
       URL.revokeObjectURL(url);
@@ -781,68 +766,10 @@
     }
     const requestedLimit = options.maxBytes == null ? Number.MAX_SAFE_INTEGER : options.maxBytes;
     if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1) fail("TOO_LARGE", "Invalid stream size limit.");
-    // The MP4 remuxer still needs both tracks in memory. Single tracks go
-    // directly to Firefox's native download when a stream saver is supplied.
+    // The MP4 remuxer still needs both tracks in memory. A single HLS or DASH
+    // track is instead written incrementally to OPFS when available.
     const maxTotalBytes = Math.min(requestedLimit, 512 * 1024 * 1024);
     const basename = options.name || "video";
-    const video = plan.tracks.find(track => track.type === "video");
-    const audio = plan.tracks.find(track => track.type === "audio");
-    const isFragmentedMp4 = track => track && ["mp4", "m4a"].includes(track.extension) &&
-      track.parts.some(part => part.role === "init");
-    if (plan.separateTracks) {
-      if (plan.tracks.length !== 2 || !isFragmentedMp4(video) || !isFragmentedMp4(audio)) {
-        fail("MUX_UNSUPPORTED", "Separate tracks can only be combined when both are fragmented MP4 with init segments.");
-      }
-      if (!root.Mp4Mux || typeof root.Mp4Mux.remux !== "function") {
-        fail("MUX_UNAVAILABLE", "The local MP4 remuxer is not loaded.");
-      }
-    }
-    const mergeTracks = async signal => {
-      let usedBytes = 0;
-      const load = async track => {
-        const blob = await trackToBlob(track, {
-          fetchImpl: fetcher, signal, maxBytes: maxTotalBytes - usedBytes,
-          onProgress: progress => options.onProgress && options.onProgress({ ...progress, track: track.type })
-        });
-        usedBytes += blob.size;
-        return blob;
-      };
-      const videoBlob = await load(video);
-      const audioBlob = await load(audio);
-      if (signal?.aborted) throw new DOMException("Download abgebrochen.", "AbortError");
-      if (options.onProgress) options.onProgress({ phase: "mux", track: "combined", bytes: usedBytes });
-      return root.Mp4Mux.remux(videoBlob, audioBlob);
-    };
-    if (options.streamSaver) {
-      const extension = plan.outputExtension;
-      const filename = safeFilename(basename, extension);
-      const saved = await options.streamSaver({
-        url, filename, extension, signal: options.signal,
-        mime: extension === "ts" ? "video/mp2t" : extension === "m4a" ? "audio/mp4" : "video/mp4",
-        produce: async (sink, signal) => {
-          if (!plan.separateTracks) {
-            const track = plan.tracks[0];
-            return trackToSink(track, {
-              fetchImpl: fetcher, signal, maxBytes: requestedLimit,
-              onProgress: progress => options.onProgress && options.onProgress({ ...progress, track: track.type })
-            }, sink);
-          }
-          const merged = await mergeTracks(signal);
-          const reader = merged.stream().getReader();
-          try {
-            while (true) {
-              if (signal?.aborted) throw new DOMException("Download abgebrochen.", "AbortError");
-              const { value, done } = await reader.read();
-              if (done) break;
-              await sink.write(value);
-            }
-          } finally { reader.releaseLock(); }
-        }
-      });
-      return { format: plan.format, files: [{ id: saved.id, filename,
-        type: plan.separateTracks ? "combined" : plan.tracks[0].type, bytes: saved.bytes }],
-        separateTracks: false, muxed: plan.separateTracks };
-    }
     const saveOne = async (blob, extension, muxed) => {
       const filename = safeFilename(basename, extension);
       const id = await saveBlob(blob, basename, extension, options.downloadsApi, options.signal);
@@ -876,7 +803,35 @@
       }
     }
 
-    const merged = await mergeTracks(options.signal);
+    const video = plan.tracks.find(track => track.type === "video");
+    const audio = plan.tracks.find(track => track.type === "audio");
+    const isFragmentedMp4 = track => track && ["mp4", "m4a"].includes(track.extension) &&
+      track.parts.some(part => part.role === "init");
+    if (plan.tracks.length !== 2 || !isFragmentedMp4(video) || !isFragmentedMp4(audio)) {
+      fail("MUX_UNSUPPORTED", "Separate tracks can only be combined when both are fragmented MP4 with init segments.");
+    }
+    if (!root.Mp4Mux || typeof root.Mp4Mux.remux !== "function") {
+      fail("MUX_UNAVAILABLE", "The local MP4 remuxer is not loaded.");
+    }
+    let usedBytes = 0;
+    const load = async track => {
+      let trackBytes = 0;
+      const blob = await trackToBlob(track, {
+        fetchImpl: fetcher,
+        signal: options.signal,
+        maxBytes: maxTotalBytes - usedBytes,
+        onProgress: progress => {
+          trackBytes = progress.bytes;
+          if (options.onProgress) options.onProgress({ ...progress, track: track.type });
+        }
+      });
+      usedBytes += trackBytes;
+      return blob;
+    };
+    const videoBlob = await load(video);
+    const audioBlob = await load(audio);
+    if (options.onProgress) options.onProgress({ phase: "mux", track: "combined", bytes: usedBytes });
+    const merged = await root.Mp4Mux.remux(videoBlob, audioBlob);
     return saveOne(merged, "mp4", true);
   }
 

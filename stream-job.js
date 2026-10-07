@@ -77,9 +77,6 @@
           audioUrl: options.audioUrl ??
             (typeof options.audioChoice === "string" ? options.audioChoice : options.audioChoice?.url),
           downloadsApi: downloadsApi(Boolean(options.incognito)),
-          streamSaver: root.DownloadStream?.save ? streamOptions => root.DownloadStream.save({
-            ...streamOptions, incognito: Boolean(options.incognito)
-          }) : undefined,
           onProgress: (progress) => emit(options.onProgress, { id, ...progress })
         });
         emit(options.onState, { id, state: "complete", result });

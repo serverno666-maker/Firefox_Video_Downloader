@@ -373,7 +373,7 @@ function startStream(candidate, incognito, videoChoice, audioChoice) {
       if (state.state === "running") {
         browser.notifications.create({
           type: "basic", title: "Video wird geladen",
-          message: "Firefox fragt jetzt nach dem Speicherort und zeigt anschließend den Download-Fortschritt. Die Webseite kann geschlossen werden."
+          message: "Der Stream wird im Hintergrund zusammengesetzt. Danach fragt Firefox nach dem Speicherort; die Webseite kann geschlossen werden."
         }).catch(console.error);
       }
       if (state.state === "failed") notifyError(state.error);
@@ -524,22 +524,3 @@ setInterval(() => {
 browser.tabs.query({ active: true }).then((tabs) => {
   for (const tab of tabs) schedulePrepareTab(tab.id, 0);
 }).catch((error) => console.warn("Initial video pre-scan failed:", error));
-
-// A Firefox restart or add-on update can interrupt a stream after its OPFS
-// file was created. No job survives a background-page restart, so these files
-// can be removed safely before the next download starts.
-(async () => {
-  const startedAt = Date.now();
-  const storage = globalThis.navigator?.storage;
-  if (typeof storage?.getDirectory !== "function") return;
-  const directory = await storage.getDirectory();
-  for await (const [name, handle] of directory.entries()) {
-    if (/^firefox-video-saver-[0-9a-f-]+\.part$/i.test(name)) {
-      try {
-        const file = await handle.getFile();
-        if (file.lastModified < startedAt) await directory.removeEntry(name);
-      }
-      catch (error) { console.warn("Old temporary video file could not be removed:", error); }
-    }
-  }
-})().catch((error) => console.warn("Temporary video file cleanup unavailable:", error));

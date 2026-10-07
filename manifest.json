@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Video herunterladen",
-  "version": "1.4.0",
+  "version": "1.2.0",
   "incognito": "not_allowed",
   "description": "Findet Videos auf Webseiten und lädt Dateien oder unterstützte Streams per Rechtsklick herunter.",
   "browser_specific_settings": {
@@ -13,9 +13,9 @@
       }
     }
   },
-  "permissions": ["<all_urls>", "menus", "downloads", "webRequest", "webRequestBlocking", "webNavigation", "storage", "tabs", "scripting", "notifications"],
+  "permissions": ["<all_urls>", "menus", "downloads", "webRequest", "webNavigation", "storage", "tabs", "scripting", "notifications"],
   "background": {
-    "scripts": ["mp4-mux.js", "streaming.js", "download-stream.js", "stream-job.js", "discovery.js", "background.js"],
+    "scripts": ["mp4-mux.js", "streaming.js", "stream-job.js", "discovery.js", "background.js"],
     "persistent": true
   },
   "content_scripts": [
